@@ -535,4 +535,271 @@ const G = {
       if (!this.records[k] || time < this.records[k]) this.records[k] = time;
       localStorage.setItem('gpp_records', JSON.stringify(this.records));
     }
-    documen
+    document.getElementById('go-title').innerText = win ? 'ПОБЕДА!' : 'GAME OVER';
+    document.getElementById('go-title').style.color = win ? '#0f0' : '#f44';
+    let stats = 'Режим: '+MODE_NAMES[this.mode]+'<br>Сложность: '+DIFF_NAMES[this.diff]+'<br>Время: '+time+' сек';
+    if (this.mode===4) {
+      stats += '<br>Ваши пропуски: '+this.player.missed;
+    } else {
+      stats += '<br>Счёт: '+this.scoreP+' : '+this.scoreAI[0];
+    }
+    document.getElementById('go-stats').innerHTML = stats;
+    this.show('gameover-screen');
+  },
+
+  showPhrase(txt) {
+    this.phrase = txt; this.phraseTimer = 90;
+    const el = document.getElementById('phrase-bar');
+    el.innerText = txt; el.classList.add('show');
+    setTimeout(()=>el.classList.remove('show'), 1500);
+  },
+
+  spawnParticles(x,y,color,n=6) {
+    for(let i=0;i<n;i++) this.particles.push(new Particle(x,y,color));
+  },
+
+  loop(ts) {
+    requestAnimationFrame(t=>this.loop(t));
+    if (!this.running || this.paused) return;
+    this.update();
+    this.draw();
+  },
+
+  update() {
+    const now = Date.now();
+    this.timer = Math.floor((now-this.startTime)/1000);
+
+    this.ball.update();
+
+    // Moving gap - horizontal position of the passage
+    if (this.mode===2) {
+      this.gapX = (Math.sin(now/1800)+1)/2 * (this.W*2/3);
+    }
+
+    // Barriers (mode 1 & 2) - horizontal walls at mid-field with central gap
+    if (this.mode===1 || this.mode===2) {
+      const gapW = this.W/3;               // width of open passage
+      const gapX = this.mode===1 ? this.W/3 : this.gapX; // left edge of passage
+      const wallY = this.H/2;              // wall sits on the net line
+      const wallH = 10;                    // wall thickness
+      const b = this.ball;
+      // Left wall segment (from x=0 to gapX)
+      if (b.x < gapX && b.y+ b.size/2 > wallY && b.y-b.size/2 < wallY+wallH) {
+        if (b.vy < 0) { b.y = wallY+wallH+b.size/2; b.vy = Math.abs(b.vy); }
+        else { b.y = wallY-b.size/2; b.vy = -Math.abs(b.vy); }
+        this.spawnParticles(b.x, b.y, '#f44', 4);
+      }
+      // Right wall segment (from gapX+gapW to W)
+      if (b.x > gapX+gapW && b.y+ b.size/2 > wallY && b.y-b.size/2 < wallY+wallH) {
+        if (b.vy < 0) { b.y = wallY+wallH+b.size/2; b.vy = Math.abs(b.vy); }
+        else { b.y = wallY-b.size/2; b.vy = -Math.abs(b.vy); }
+        this.spawnParticles(b.x, b.y, '#f44', 4);
+      }
+    }
+
+    // Blocks
+    if (this.mode===3 || this.mode===4) {
+      this.blocks = this.blocks.filter(b => now-b.born < b.life);
+      for (const blk of this.blocks) {
+        const ball = this.ball;
+        if (ball.x+ball.size/2 > blk.x && ball.x-ball.size/2 < blk.x+blk.w &&
+            ball.y+ball.size/2 > blk.y && ball.y-ball.size/2 < blk.y+blk.h) {
+          const dx = ball.x - (blk.x+blk.w/2);
+          const dy = ball.y - (blk.y+blk.h/2);
+          if (Math.abs(dx)/blk.w > Math.abs(dy)/blk.h) ball.vx *= -1; else ball.vy *= -1;
+          this.spawnParticles(ball.x, ball.y, '#A0522D', 4);
+        }
+      }
+      const recentBlocks = this.blocks.filter(b => now - b.born < 5000).length;
+      if (this.blocks.length < 10 && now-this.blockSpawnTimer > 2500 && recentBlocks < 2) {
+        this.blocks.push(new Block());
+        this.blockSpawnTimer = now;
+      }
+    }
+
+    // Bonuses
+    if (this.mode===4 || Math.random()<0.002) {
+      if (now-this.bonusSpawnTimer > 12000) {
+        this.bonuses.push(new Bonus());
+        this.bonusSpawnTimer = now;
+      }
+    }
+    this.bonuses = this.bonuses.filter(b => now-b.born < b.life);
+    for (let i=this.bonuses.length-1; i>=0; i--) {
+      const b = this.bonuses[i];
+      const ball = this.ball;
+      if (Math.abs(ball.x-(b.x+b.size/2)) < ball.size/2+b.size/2 &&
+          Math.abs(ball.y-(b.y+b.size/2)) < ball.size/2+b.size/2) {
+        const target = ball.lastHitBy==='player' ? this.player : (this.ais.find(a=>!a.isPlayer)||this.ais[0]);
+        if (target) { target.boost=0.2; target.boostHits=3; this.showPhrase('БОНУС: +20%'); }
+        this.bonuses.splice(i,1);
+      }
+    }
+
+    // Paddles
+    this.player.updatePlayer();
+    this.ais.forEach(ai=>ai.updateAI(this.ball));
+
+    // Paddle collisions
+    for (const p of this.paddles) {
+      if (p.hasWall) { if (this.checkHit(p, true)) this.spawnParticles(this.ball.x,this.ball.y,'#888',4); continue; }
+      if (this.checkHit(p)) { if (p.boostHits>0) { p.boostHits--; if(p.boostHits<=0) p.boost=0; } }
+    }
+
+    // Goal checks
+    const b = this.ball;
+    if (this.mode===4) {
+      if (b.y < -b.size) this.handleMiss(0);
+      else if (b.x < -b.size) this.handleMiss(1);
+      else if (b.x > this.W+b.size) this.handleMiss(2);
+      else if (b.y > this.H+b.size) this.handlePlayerMiss();
+    } else {
+      if (b.y < -b.size) { this.scoreP++; this.afterGoal(true); }
+      else if (b.y > this.H+b.size) { this.scoreAI[0]++; this.afterGoal(false); }
+    }
+
+    // Win checks
+    if (this.mode!==4 && this.scoreP >= 11) this.gameOver(true);
+    if (this.mode!==4 && this.scoreAI[0] >= 11) this.gameOver(false);
+    if (this.mode===4 && this.ais.every(a=>a.hasWall)) this.gameOver(true);
+
+    this.particles = this.particles.filter(p=>p.life>0);
+    this.particles.forEach(p=>p.update());
+
+    document.getElementById('hud-time').innerText = this.timer+'с';
+    if (this.mode===4) {
+      document.getElementById('hud-score').innerText = 'Пропуски: '+this.player.missed+' | AI стены: '+this.ais.filter(a=>a.hasWall).length+'/3';
+    } else {
+      document.getElementById('hud-score').innerText = this.scoreP+' : '+this.scoreAI[0];
+    }
+
+    if (this.phraseTimer>0) this.phraseTimer--;
+    if (this.shake>0) { this.shake*=0.9; if(this.shake<0.5)this.shake=0; }
+  },
+
+  handleMiss(aiIdx) {
+    this.misses[aiIdx]++;
+    const ai = this.ais[aiIdx];
+    ai.missed++;
+    if (ai.missed >= 11 && !ai.hasWall) {
+      ai.hasWall = true;
+      this.showPhrase('AI '+(['Верх','Лево','Право'][aiIdx])+' — СТЕНА!');
+    } else {
+      this.showPhrase(PHRASES[Math.floor(Math.random()*PHRASES.length)]);
+    }
+    this.scoreP++;
+    this.afterGoal(true);
+  },
+
+  handlePlayerMiss() {
+    this.player.missed++;
+    if (this.player.missed >= 11) { this.gameOver(false); return; }
+    this.afterGoal(false);
+  },
+
+  afterGoal(playerScored) {
+    this.ball.reset();
+    this.ball.speedMult = 1;
+    this.smashReady = false;
+    setTimeout(()=>this.ball.launch(!playerScored), 800);
+  },
+
+  checkHit(p, isWall=false) {
+    const b = this.ball;
+    const pw = p.bw, ph = p.h;
+    let hit = false;
+
+    if (p.vertical) {
+      if (b.x+b.size/2 > p.x && b.x-b.size/2 < p.x+p.w &&
+          b.y+b.size/2 > p.y && b.y-b.size/2 < p.y+ph) {
+        const hitPos = (b.y - p.y)/ph;
+        let angle = (hitPos-0.5)*Math.PI/2.2;
+        angle += p.vy*0.025;
+        const s = b.baseSpeed*b.speedMult;
+        b.vy = Math.sin(angle)*s;
+        b.vx = (p.x < this.W/2 ? 1 : -1) * Math.abs(Math.cos(angle)*s);
+        if (Math.abs(b.vx) < 1.5) b.vx = (p.x < this.W/2 ? 1 : -1)*2.5;
+        hit = true;
+      }
+    } else {
+      if (b.x+b.size/2 > p.x && b.x-b.size/2 < p.x+pw &&
+          b.y+b.size/2 > p.y && b.y-b.size/2 < p.y+ph) {
+        const hitPos = (b.x - p.x)/pw;
+        let angle = 0;
+        if (hitPos < 0.33) angle = -Math.PI/3.5;
+        else if (hitPos > 0.66) angle = Math.PI/3.5;
+        else angle = (Math.random()-0.5)*0.25;
+        angle += p.vx*0.025;
+        const s = b.baseSpeed*b.speedMult;
+        b.vx = Math.sin(angle)*s;
+        b.vy = (p.y < this.H/2 ? 1 : -1) * Math.abs(Math.cos(angle)*s);
+        if (Math.abs(b.vy) < 1.5) b.vy = (p.y < this.H/2 ? 1 : -1)*2.5;
+        hit = true;
+      }
+    }
+
+    if (hit) {
+      b.lastHitBy = p.isPlayer ? 'player' : 'ai';
+      if (!isWall && this.smashReady && (Date.now()-this.smashTimer)<300) {
+        b.speedMult *= 1.1;
+        this.smashReady = false;
+        this.showPhrase('СМЭШ! x'+b.speedMult.toFixed(1));
+        this.shake = 12;
+      }
+      this.spawnParticles(b.x, b.y, p.isPlayer?'#ffd700':'#ff4444', 5);
+    }
+    return hit;
+  },
+
+  draw() {
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0,0,this.W,this.H);
+
+    ctx.strokeStyle = '#333'; ctx.lineWidth=2; ctx.setLineDash([6,6]);
+    ctx.beginPath();
+    if (this.mode===4) {
+      ctx.moveTo(this.W/2,0); ctx.lineTo(this.W/2,this.H);
+      ctx.moveTo(0,this.H/2); ctx.lineTo(this.W,this.H/2);
+    } else {
+      ctx.moveTo(0,this.H/2); ctx.lineTo(this.W,this.H/2);
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+
+    if (this.mode===1 || this.mode===2) {
+      const gapW = this.W/3;
+      const gapX = this.mode===1 ? this.W/3 : this.gapX;
+      const wallY = this.H/2;
+      const wallH = 10;
+      // Draw left wall
+      ctx.fillStyle = '#444';
+      ctx.fillRect(0, wallY, gapX, wallH);
+      ctx.strokeStyle = '#f44'; ctx.lineWidth=2;
+      ctx.strokeRect(0, wallY, gapX, wallH);
+      // Draw right wall
+      ctx.fillStyle = '#444';
+      ctx.fillRect(gapX+gapW, wallY, this.W-gapX-gapW, wallH);
+      ctx.strokeStyle = '#f44'; ctx.lineWidth=2;
+      ctx.strokeRect(gapX+gapW, wallY, this.W-gapX-gapW, wallH);
+      // Draw open passage indicator
+      ctx.fillStyle = 'rgba(0,255,0,0.1)';
+      ctx.fillRect(gapX, wallY, gapW, wallH);
+    }
+
+    this.blocks.forEach(b=>b.draw());
+    this.bonuses.forEach(b=>b.draw());
+    this.paddles.forEach(p=>p.draw());
+    this.ball.draw();
+    this.particles.forEach(p=>p.draw());
+
+    if (this.shake>0) {
+      canvas.style.transform = `translate(${(Math.random()-0.5)*this.shake}px,${(Math.random()-0.5)*this.shake}px)`;
+    } else {
+      canvas.style.transform = '';
+    }
+  }
+};
+
+G.init();
+</script>
+</body>
+</html>
