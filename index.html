@@ -127,6 +127,12 @@ h1 small {
       <h1>Настройки</h1>
       <div style="color:#ccc;font-size:11px;margin-bottom:10px;">Цвет шара</div>
       <div id="color-picker"></div>
+      <div style="color:#ffd700;font-size:11px;margin-top:16px;margin-bottom:6px;">Управление</div>
+      <div style="color:#aaa;font-size:9px;line-height:1.6;text-align:left;max-width:280px;">
+        <b>ПК:</b> ← → движение ракетки | ↑ смэш | ESC пауза<br>
+        <b>Сенсор:</b> движение пальцем влево/вправо — движение ракетки | тап по экрану — смэш<br>
+        <b>Правила:</b> левая/правая треть ракетки — угол влево/вправо, центр — прямо. Смэш сохраняется до гола.
+      </div>
       <button class="btn" onclick="G.toMenu()" style="margin-top:16px;border-color:#666;color:#888;">Назад</button>
     </div>
     <div id="gameover-screen" class="hidden">
@@ -593,7 +599,7 @@ const G = {
     if (this.campaignActive && win) {
       document.getElementById('go-title').innerText = 'КОМПАНИЯ ПРОЙДЕНА!';
       document.getElementById('go-title').style.color = '#0f0';
-      let stats = 'Сложность: '+DIFF_NAMES[this.diff]+'<br>Время: '+time+' сек<br>Пройдено режимов: 6/6';
+      let stats = 'Сложность: '+DIFF_NAMES[this.diff]+'<br>Время: '+time+' сек<br>Пройдено режимов: '+this.campaignStage+'/6';
       document.getElementById('go-stats').innerHTML = stats;
       this.campaignActive=false;
       this.show('gameover-screen'); return;
@@ -724,11 +730,11 @@ const G = {
     }
 
     // Win checks
-    const winScore = (this.campaignActive || this.mode===5) ? 5 : 11;
-    if (this.mode!==4 && this.mode!==5 && this.scoreP >= winScore) this.gameOver(true);
-    if (this.mode!==4 && this.mode!==5 && this.scoreAI[0] >= winScore) this.gameOver(false);
-    if (this.mode===5 && this.scoreP >= winScore) { this.nextCampaignStage(); return; }
-    if (this.mode===5 && this.scoreAI[0] >= winScore) this.gameOver(false);
+    const winScore = this.campaignActive ? 5 : 11;
+    if (this.campaignActive && this.scoreP >= winScore) { this.nextCampaignStage(); return; }
+    if (this.campaignActive && this.scoreAI[0] >= winScore) this.gameOver(false);
+    if (!this.campaignActive && this.mode!==4 && this.scoreP >= winScore) this.gameOver(true);
+    if (!this.campaignActive && this.mode!==4 && this.scoreAI[0] >= winScore) this.gameOver(false);
     if (this.mode===4 && this.ais.every(a=>a.hasWall)) this.gameOver(true);
 
     this.particles = this.particles.filter(p=>p.life>0);
