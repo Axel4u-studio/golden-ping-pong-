@@ -68,6 +68,7 @@ h1 small {
   font-size:clamp(10px, 3vw, 18px); color:#0f0;
   text-shadow:0 0 10px rgba(0,255,0,0.6);
   opacity:0; transition:opacity .2s; pointer-events:none;
+  z-index:100;
 }
 #phrase-bar.show { opacity:1; }
 #game-wrapper::after {
@@ -537,14 +538,12 @@ const G = {
 
   nextCampaignStage() {
     this.campaignStage++;
-    if (this.campaignStage >= 6) {
+    if (this.campaignStage >= 5) {
       this.gameOver(true);
       return;
     }
-    // Map campaign stage to actual mode: 0->0, 1->1, 2->2, 3->3, 4->4, 5->0 again (or we can do 0-4)
-    // Actually campaign has 5 stages for 5 modes (0-4), stage 5 would be final boss or repeat
-    // Let's do: stages 0-4 = modes 0-4, stage 5 = mode 0 again (final)
-    const modeMap = [0,1,2,3,4,0];
+    // Campaign: 5 stages = 5 modes (0-4)
+    const modeMap = [0,1,2,3,4];
     this.campaignMode = modeMap[this.campaignStage];
     this.mode = this.campaignMode;
     this.showPhrase('ЭТАП '+(this.campaignStage+1)+': '+MODE_NAMES[this.campaignMode]);
@@ -599,7 +598,7 @@ const G = {
     if (this.campaignActive && win) {
       document.getElementById('go-title').innerText = 'КОМПАНИЯ ПРОЙДЕНА!';
       document.getElementById('go-title').style.color = '#0f0';
-      let stats = 'Сложность: '+DIFF_NAMES[this.diff]+'<br>Время: '+time+' сек<br>Пройдено режимов: '+this.campaignStage+'/6';
+      let stats = 'Сложность: '+DIFF_NAMES[this.diff]+'<br>Время: '+time+' сек<br>Пройдено режимов: 5/5';
       document.getElementById('go-stats').innerHTML = stats;
       this.campaignActive=false;
       this.show('gameover-screen'); return;
@@ -609,8 +608,8 @@ const G = {
     let stats = 'Режим: '+MODE_NAMES[this.mode]+'<br>Сложность: '+DIFF_NAMES[this.diff]+'<br>Время: '+time+' сек';
     if (this.mode===4) {
       stats += '<br>Ваши пропуски: '+this.player.missed;
-    } else if (this.mode===5) {
-      stats += '<br>Счёт: '+this.scoreP+' : '+this.scoreAI[0]+'<br>Этап: '+(this.campaignStage+1)+'/6';
+    } else if (this.mode===5 || this.campaignActive) {
+      stats += '<br>Счёт: '+this.scoreP+' : '+this.scoreAI[0]+'<br>Этап: '+(this.campaignStage+1)+'/5';
     } else {
       stats += '<br>Счёт: '+this.scoreP+' : '+this.scoreAI[0];
     }
@@ -621,8 +620,13 @@ const G = {
   showPhrase(txt) {
     this.phrase = txt; this.phraseTimer = 90;
     const el = document.getElementById('phrase-bar');
-    el.innerText = txt; el.classList.add('show');
-    setTimeout(()=>el.classList.remove('show'), 1500);
+    if (!el) return;
+    el.innerText = txt;
+    el.classList.remove('show');
+    void el.offsetWidth; // force reflow
+    el.classList.add('show');
+    if (this._phraseTimeout) clearTimeout(this._phraseTimeout);
+    this._phraseTimeout = setTimeout(()=>{ if(el) el.classList.remove('show'); }, 1500);
   },
 
   spawnParticles(x,y,color,n=6) {
@@ -758,17 +762,15 @@ const G = {
     if (ai.missed >= 11 && !ai.hasWall) {
       ai.hasWall = true;
       this.showPhrase('AI '+(['Верх','Лево','Право'][aiIdx])+' — СТЕНА!');
-    } else {
-      this.showPhrase(PHRASES[Math.floor(Math.random()*PHRASES.length)]);
     }
-    this.scoreP++;
-    this.afterGoal(true);
+    this.afterGoalArena();
   },
 
   handlePlayerMiss() {
     this.player.missed++;
     if (this.player.missed >= 11) { this.gameOver(false); return; }
-    this.afterGoal(false);
+    this.showPhrase('Пропуск!');
+    this.afterGoalArena();
   },
 
   afterGoal(playerScored) {
@@ -777,6 +779,20 @@ const G = {
     if (this.player) this.player.smashReady = false;
     this.ais.forEach(a=>a.smashReady=false);
     setTimeout(()=>this.ball.launch(!playerScored), 800);
+  },
+
+  afterGoalArena() {
+    this.ball.reset();
+    this.ball.speedMult = 1;
+    if (this.player) this.player.smashReady = false;
+    this.ais.forEach(a=>a.smashReady=false);
+    setTimeout(()=>{
+      this.ball.active = true;
+      const angle = Math.random() * Math.PI * 2;
+      const s = this.ball.baseSpeed;
+      this.ball.vx = Math.cos(angle) * s;
+      this.ball.vy = Math.sin(angle) * s;
+    }, 800);
   },
 
   checkHit(p, isWall=false) {
@@ -815,6 +831,9 @@ const G = {
 
     if (hit) {
       b.lastHitBy = p.isPlayer ? 'player' : 'ai';
+      if (!isWall && Math.random() < 0.3) {
+        this.showPhrase(PHRASES[Math.floor(Math.random()*PHRASES.length)]);
+      }
       if (!isWall && p.smashReady && (Date.now()-p.smashTimer)<300) {
         b.speedMult *= 1.1;
         p.smashReady = false;
