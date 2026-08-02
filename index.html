@@ -108,6 +108,7 @@ h1 small {
         <button class="btn" onclick="G.setMode(2)">3. Бегущий коридор</button>
         <button class="btn" onclick="G.setMode(3)">4. Хаос</button>
         <button class="btn" onclick="G.setMode(4)">5. Арена</button>
+        <button class="btn" onclick="G.setMode(5)">6. Компания</button>
         <button class="btn" onclick="G.toMenu()" style="margin-top:10px;border-color:#666;color:#888;">Назад</button>
       </div>
     </div>
@@ -117,6 +118,8 @@ h1 small {
         <button class="btn" onclick="G.setDiff(0)">Лёгкая</button>
         <button class="btn" onclick="G.setDiff(1)">Средняя</button>
         <button class="btn" onclick="G.setDiff(2)">Сложная</button>
+        <button class="btn" onclick="G.setDiff(3)">Очень сложная</button>
+        <button class="btn" onclick="G.setDiff(4)">АД</button>
         <button class="btn" onclick="G.toModes()" style="margin-top:10px;border-color:#666;color:#888;">Назад</button>
       </div>
     </div>
@@ -159,8 +162,8 @@ const PHRASES = [
   'Бог игры!','Монстр!','Ультра!','Мега удар!','Восхитительно!',
   'Блестяще!','Фантастика!','Мастерство!','Превосходно!','Вин!'
 ];
-const MODE_NAMES = ['Классический','Коридор','Бегущий коридор','Хаос','Арена'];
-const DIFF_NAMES = ['Лёгкая','Средняя','Сложная'];
+const MODE_NAMES = ['Классический','Коридор','Бегущий коридор','Хаос','Арена','Компания'];
+const DIFF_NAMES = ['Лёгкая','Средняя','Сложная','Очень сложная','АД'];
 const BALL_COLORS = {
   white:  {main:'#ffffff', glow:'#ffd700'},
   gold:   {main:'#ffd700', glow:'#ffaa00'},
@@ -227,10 +230,19 @@ class Paddle {
     this.boost = 0; this.boostHits = 0;
     this.missed = 0;
     this.hasWall = false;
+    this.smashReady = false;
+    this.smashTimer = 0;
   }
   get bw() { return this.w*(1+this.boost); }
   updateAI(ball) {
     if (this.isPlayer || this.hasWall) return;
+    // AI smash chance: easy 5%, medium 15%, hard 30%, very hard 50%, hell 70%
+    const smashChances = [0.05, 0.15, 0.30, 0.50, 0.70];
+    const willSmash = Math.random() < smashChances[G.diff];
+    if (willSmash && !this.smashReady) {
+      this.smashReady = true; this.smashTimer = Date.now();
+      setTimeout(()=>{ this.smashReady = false; }, 300);
+    }
     const maxSpd = this.speed * (0.5 + G.diff*0.25);
     if (this.vertical) {
       const target = ball.y;
@@ -285,8 +297,14 @@ class Paddle {
 
 class Block {
   constructor() {
-    this.w = 30 + Math.random()*30;
-    this.h = 10 + Math.random()*12;
+    this.vertical = Math.random() < 0.5;
+    if (this.vertical) {
+      this.w = 10 + Math.random()*12;
+      this.h = 30 + Math.random()*30;
+    } else {
+      this.w = 30 + Math.random()*30;
+      this.h = 10 + Math.random()*12;
+    }
     this.x = Math.random()*(G.W-this.w);
     this.y = G.H*0.25 + Math.random()*(G.H*0.5);
     this.life = 4000 + Math.random()*6000;
@@ -345,10 +363,10 @@ const G = {
   startTime:0, timer:0,
   phrase:'', phraseTimer:0,
   keys:{}, touch:{active:false, x:0, lastX:0, startY:0, y:0},
-  smashReady:false, smashTimer:0,
   records:{}, shake:0,
   blockSpawnTimer:0, bonusSpawnTimer:0, gapX:0,
   ballColor:'white',
+  campaignStage:0, campaignMode:0, campaignActive:false,
 
   init() {
     const saved = localStorage.getItem('gpp_records');
@@ -396,14 +414,14 @@ const G = {
   bindInput() {
     window.addEventListener('keydown', e=>{
       this.keys[e.key] = true;
-      if (e.key==='ArrowUp' || e.key==='w') { this.smashReady=true; this.smashTimer=Date.now(); }
+      if (e.key==='ArrowUp' || e.key==='w') { if(this.player){this.player.smashReady=true; this.player.smashTimer=Date.now();} }
       if (e.key==='Escape') {
         if(this.screen==='game') { this.togglePause(); }
       }
     });
     window.addEventListener('keyup', e=>{
       this.keys[e.key]=false;
-      if(e.key==='ArrowUp'||e.key==='w') this.smashReady=false;
+      if(e.key==='ArrowUp'||e.key==='w') { if(this.player) this.player.smashReady=false; }
     });
 
     // Touch on whole window: tap = smash, move = paddle
@@ -434,13 +452,13 @@ const G = {
     }, {passive:false});
     window.addEventListener('touchend', e=>{
       if (this.touch.isTap && (Date.now()-this.touch.tapStart) < 350) {
-        this.smashReady = true; this.smashTimer = Date.now();
-        setTimeout(()=>{ this.smashReady=false; }, 300);
+        if(this.player){ this.player.smashReady = true; this.player.smashTimer = Date.now(); }
+        setTimeout(()=>{ if(this.player) this.player.smashReady=false; }, 300);
       }
       this.touch.active=false; this.touch.isTap=false;
     });
     window.addEventListener('touchcancel', e=>{
-      this.touch.active=false; this.touch.isTap=false; this.smashReady=false;
+      this.touch.active=false; this.touch.isTap=false;
     });
   },
 
@@ -454,10 +472,10 @@ const G = {
     }
   },
 
-  toMenu() { this.show('title-screen'); this.running=false; this.screen='menu'; this.paused=false; document.getElementById('pause-btn').innerText='II ПАУЗА'; },
+  toMenu() { this.show('title-screen'); this.running=false; this.screen='menu'; this.paused=false; this.campaignActive=false; this.campaignStage=0; document.getElementById('pause-btn').innerText='II ПАУЗА'; },
   toModes() { this.show('mode-screen'); this.screen='modes'; },
   toSettings() { this.show('settings-screen'); this.screen='settings'; },
-  setMode(m) { this.mode=m; document.getElementById('diff-title').innerText=MODE_NAMES[m]; this.show('diff-screen'); },
+  setMode(m) { this.mode=m; this.campaignActive=(m===5); document.getElementById('diff-title').innerText=MODE_NAMES[m]; this.show('diff-screen'); },
   setDiff(d) { this.diff=d; this.startGame(); },
   show(id) {
     ['title-screen','mode-screen','diff-screen','settings-screen','gameover-screen','records-screen','hud','controls-hint'].forEach(x=>{
@@ -470,9 +488,9 @@ const G = {
     this.show('records-screen'); this.screen='records';
     const list = document.getElementById('records-list');
     let html = '';
-    for (let m=0;m<5;m++) {
+    for (let m=0;m<6;m++) {
       html += '<div style="color:#ffd700;margin-top:10px;">'+MODE_NAMES[m]+'</div>';
-      for (let d=0;d<3;d++) {
+      for (let d=0;d<5;d++) {
         const k = m+'_'+d; const v = this.records[k];
         html += '<div>'+DIFF_NAMES[d]+': '+(v?v+' сек':'—')+'</div>';
       }
@@ -487,7 +505,6 @@ const G = {
     this.startTime=Date.now(); this.timer=0;
     this.blocks=[]; this.bonuses=[]; this.particles=[];
     this.phrase=''; this.phraseTimer=0; this.shake=0;
-    this.smashReady=false; this.smashTimer=0;
     this.blockSpawnTimer=0; this.bonusSpawnTimer=0;
     this.gapX = this.W/3;
 
@@ -512,6 +529,41 @@ const G = {
 
   restart() { this.startGame(); },
 
+  nextCampaignStage() {
+    this.campaignStage++;
+    if (this.campaignStage >= 6) {
+      this.gameOver(true);
+      return;
+    }
+    // Map campaign stage to actual mode: 0->0, 1->1, 2->2, 3->3, 4->4, 5->0 again (or we can do 0-4)
+    // Actually campaign has 5 stages for 5 modes (0-4), stage 5 would be final boss or repeat
+    // Let's do: stages 0-4 = modes 0-4, stage 5 = mode 0 again (final)
+    const modeMap = [0,1,2,3,4,0];
+    this.campaignMode = modeMap[this.campaignStage];
+    this.mode = this.campaignMode;
+    this.showPhrase('ЭТАП '+(this.campaignStage+1)+': '+MODE_NAMES[this.campaignMode]);
+    this.scoreP=0; this.scoreAI=[0,0,0]; this.misses=[0,0,0];
+    this.ball.reset();
+    this.ball.speedMult = 1;
+    // Rebuild paddles for new mode
+    const pw=90, ph=14;
+    if (this.mode===4) {
+      this.player = new Paddle(this.W/2-pw/2, this.H-ph-12, pw, ph, false, true);
+      this.ais = [
+        new Paddle(this.W/2-pw/2, 12, pw, ph, false, false, 0),
+        new Paddle(12, this.H/2-pw/2, ph, pw, true, false, 1),
+        new Paddle(this.W-ph-12, this.H/2-pw/2, ph, pw, true, false, 2)
+      ];
+    } else {
+      this.player = new Paddle(this.W/2-pw/2, this.H-ph-12, pw, ph, false, true);
+      this.ais = [new Paddle(this.W/2-pw/2, 12, pw, ph, false, false, 0)];
+    }
+    this.paddles = [this.player, ...this.ais];
+    this.blocks=[]; this.bonuses=[]; this.particles=[];
+    this.blockSpawnTimer=0; this.bonusSpawnTimer=0; this.gapX=this.W/3;
+    setTimeout(()=>this.ball.launch(true), 1000);
+  },
+
   togglePause() {
     if (!this.running && this.screen==='game') {
       this.running = true;
@@ -533,16 +585,26 @@ const G = {
   gameOver(win) {
     this.running=false;
     const time = Math.floor((Date.now()-this.startTime)/1000);
-    if (win) {
+    if (win && !this.campaignActive) {
       const k = this.mode+'_'+this.diff;
       if (!this.records[k] || time < this.records[k]) this.records[k] = time;
       localStorage.setItem('gpp_records', JSON.stringify(this.records));
+    }
+    if (this.campaignActive && win) {
+      document.getElementById('go-title').innerText = 'КОМПАНИЯ ПРОЙДЕНА!';
+      document.getElementById('go-title').style.color = '#0f0';
+      let stats = 'Сложность: '+DIFF_NAMES[this.diff]+'<br>Время: '+time+' сек<br>Пройдено режимов: 6/6';
+      document.getElementById('go-stats').innerHTML = stats;
+      this.campaignActive=false;
+      this.show('gameover-screen'); return;
     }
     document.getElementById('go-title').innerText = win ? 'ПОБЕДА!' : 'GAME OVER';
     document.getElementById('go-title').style.color = win ? '#0f0' : '#f44';
     let stats = 'Режим: '+MODE_NAMES[this.mode]+'<br>Сложность: '+DIFF_NAMES[this.diff]+'<br>Время: '+time+' сек';
     if (this.mode===4) {
       stats += '<br>Ваши пропуски: '+this.player.missed;
+    } else if (this.mode===5) {
+      stats += '<br>Счёт: '+this.scoreP+' : '+this.scoreAI[0]+'<br>Этап: '+(this.campaignStage+1)+'/6';
     } else {
       stats += '<br>Счёт: '+this.scoreP+' : '+this.scoreAI[0];
     }
@@ -662,8 +724,11 @@ const G = {
     }
 
     // Win checks
-    if (this.mode!==4 && this.scoreP >= 11) this.gameOver(true);
-    if (this.mode!==4 && this.scoreAI[0] >= 11) this.gameOver(false);
+    const winScore = (this.campaignActive || this.mode===5) ? 5 : 11;
+    if (this.mode!==4 && this.mode!==5 && this.scoreP >= winScore) this.gameOver(true);
+    if (this.mode!==4 && this.mode!==5 && this.scoreAI[0] >= winScore) this.gameOver(false);
+    if (this.mode===5 && this.scoreP >= winScore) { this.nextCampaignStage(); return; }
+    if (this.mode===5 && this.scoreAI[0] >= winScore) this.gameOver(false);
     if (this.mode===4 && this.ais.every(a=>a.hasWall)) this.gameOver(true);
 
     this.particles = this.particles.filter(p=>p.life>0);
@@ -703,7 +768,8 @@ const G = {
   afterGoal(playerScored) {
     this.ball.reset();
     this.ball.speedMult = 1;
-    this.smashReady = false;
+    if (this.player) this.player.smashReady = false;
+    this.ais.forEach(a=>a.smashReady=false);
     setTimeout(()=>this.ball.launch(!playerScored), 800);
   },
 
@@ -743,10 +809,11 @@ const G = {
 
     if (hit) {
       b.lastHitBy = p.isPlayer ? 'player' : 'ai';
-      if (!isWall && this.smashReady && (Date.now()-this.smashTimer)<300) {
+      if (!isWall && p.smashReady && (Date.now()-p.smashTimer)<300) {
         b.speedMult *= 1.1;
-        this.smashReady = false;
-        this.showPhrase('СМЭШ! x'+b.speedMult.toFixed(1));
+        p.smashReady = false;
+        const who = p.isPlayer ? 'ИГРОК' : 'AI';
+        this.showPhrase(who + ' СМЭШ! x'+b.speedMult.toFixed(1));
         this.shake = 12;
       }
       this.spawnParticles(b.x, b.y, p.isPlayer?'#ffd700':'#ff4444', 5);
