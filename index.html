@@ -142,7 +142,7 @@ h1 small {
       <span id="hud-time"></span>
     </div>
     <div id="phrase-bar"></div>
-    <div id="controls-hint" class="hidden">&#8592; &#8594; движение | &#8593; смэш | ESC пауза</div>
+    <div id="controls-hint" class="hidden">&#8592; &#8594; движение | &#8593; смэш | ТАП = смэш | ESC пауза</div>
   </div>
 </div>
 <script>
@@ -246,13 +246,9 @@ class Paddle {
   updatePlayer() {
     if (!this.isPlayer) return;
     this.vx = 0; this.vy = 0;
-    if (G.keys['ArrowLeft'] || G.keys['a']) this.vx = -this.speed;
-    if (G.keys['ArrowRight'] || G.keys['d']) this.vx = this.speed;
-    if (G.touch.active) {
-      const dx = G.touch.x - G.touch.lastX;
-      this.x += dx * 1.5;
-      G.touch.lastX = G.touch.x;
-    }
+    if (G.keys['ArrowLeft'] || G.keys['a']) { this.vx = -this.speed; this.x += this.vx; }
+    if (G.keys['ArrowRight'] || G.keys['d']) { this.vx = this.speed; this.x += this.vx; }
+    // Touch movement handled in touchmove event for responsiveness
     this.clamp();
   }
   clamp() {
@@ -407,29 +403,41 @@ const G = {
       if(e.key==='ArrowUp'||e.key==='w') this.smashReady=false;
     });
 
-    // Touch on whole window
+    // Touch on whole window: tap = smash, move = paddle
     window.addEventListener('touchstart', e=>{
       if (this.screen!=='game' || !this.running) return;
       this.touch.active=true;
       this.touch.x = e.touches[0].clientX;
       this.touch.lastX = this.touch.x;
+      this.touch.startX = e.touches[0].clientX;
       this.touch.startY = e.touches[0].clientY;
       this.touch.y = this.touch.startY;
+      this.touch.tapStart = Date.now();
+      this.touch.isTap = true;
     }, {passive:false});
     window.addEventListener('touchmove', e=>{
       if (!this.touch.active) return;
       e.preventDefault();
       this.touch.x = e.touches[0].clientX;
       this.touch.y = e.touches[0].clientY;
-      if (this.touch.startY - this.touch.y > 50) {
-        this.smashReady = true; this.smashTimer = Date.now();
-      }
+      const dx = Math.abs(this.touch.x - this.touch.startX);
+      const dy = Math.abs(this.touch.y - this.touch.startY);
+      if (dx > 12 || dy > 12) this.touch.isTap = false;
+      // Paddle movement
+      const moveDx = this.touch.x - this.touch.lastX;
+      this.player.x += moveDx * 1.5;
+      this.player.clamp();
+      this.touch.lastX = this.touch.x;
     }, {passive:false});
     window.addEventListener('touchend', e=>{
-      this.touch.active=false; this.smashReady=false;
+      if (this.touch.isTap && (Date.now()-this.touch.tapStart) < 350) {
+        this.smashReady = true; this.smashTimer = Date.now();
+        setTimeout(()=>{ this.smashReady=false; }, 300);
+      }
+      this.touch.active=false; this.touch.isTap=false;
     });
     window.addEventListener('touchcancel', e=>{
-      this.touch.active=false; this.smashReady=false;
+      this.touch.active=false; this.touch.isTap=false; this.smashReady=false;
     });
   },
 
@@ -545,18 +553,30 @@ const G = {
 
     this.ball.update();
 
-    // Moving gap
+    // Moving gap - horizontal position of the passage
     if (this.mode===2) {
       this.gapX = (Math.sin(now/1800)+1)/2 * (this.W*2/3);
     }
 
-    // Barriers (mode 1 & 2)
+    // Barriers (mode 1 & 2) - horizontal walls at mid-field with central gap
     if (this.mode===1 || this.mode===2) {
-      const gw = this.W/3;
-      const gx = this.mode===1 ? this.W/3 : this.gapX;
+      const gapW = this.W/3;               // width of open passage
+      const gapX = this.mode===1 ? this.W/3 : this.gapX; // left edge of passage
+      const wallY = this.H/2;              // wall sits on the net line
+      const wallH = 10;                    // wall thickness
       const b = this.ball;
-      if (b.x < gx && b.x+b.size/2 > gx-2) { b.x = gx-b.size/2; b.vx = Math.abs(b.vx); this.spawnParticles(b.x,b.y,'#888',3); }
-      if (b.x > gx+gw && b.x-b.size/2 < gx+gw+2) { b.x = gx+gw+b.size/2; b.vx = -Math.abs(b.vx); this.spawnParticles(b.x,b.y,'#888',3); }
+      // Left wall segment (from x=0 to gapX)
+      if (b.x < gapX && b.y+ b.size/2 > wallY && b.y-b.size/2 < wallY+wallH) {
+        if (b.vy < 0) { b.y = wallY+wallH+b.size/2; b.vy = Math.abs(b.vy); }
+        else { b.y = wallY-b.size/2; b.vy = -Math.abs(b.vy); }
+        this.spawnParticles(b.x, b.y, '#f44', 4);
+      }
+      // Right wall segment (from gapX+gapW to W)
+      if (b.x > gapX+gapW && b.y+ b.size/2 > wallY && b.y-b.size/2 < wallY+wallH) {
+        if (b.vy < 0) { b.y = wallY+wallH+b.size/2; b.vy = Math.abs(b.vy); }
+        else { b.y = wallY-b.size/2; b.vy = -Math.abs(b.vy); }
+        this.spawnParticles(b.x, b.y, '#f44', 4);
+      }
     }
 
     // Blocks
@@ -728,15 +748,23 @@ const G = {
     ctx.stroke(); ctx.setLineDash([]);
 
     if (this.mode===1 || this.mode===2) {
-      const gw = this.W/3; const gx = this.mode===1 ? this.W/3 : this.gapX;
-      ctx.fillStyle = '#2a2a3e';
-      ctx.fillRect(0,0,gx,this.H);
-      ctx.fillRect(gx+gw,0,this.W-gx-gw,this.H);
+      const gapW = this.W/3;
+      const gapX = this.mode===1 ? this.W/3 : this.gapX;
+      const wallY = this.H/2;
+      const wallH = 10;
+      // Draw left wall
+      ctx.fillStyle = '#444';
+      ctx.fillRect(0, wallY, gapX, wallH);
       ctx.strokeStyle = '#f44'; ctx.lineWidth=2;
-      ctx.beginPath();
-      ctx.moveTo(gx,0); ctx.lineTo(gx,this.H);
-      ctx.moveTo(gx+gw,0); ctx.lineTo(gx+gw,this.H);
-      ctx.stroke();
+      ctx.strokeRect(0, wallY, gapX, wallH);
+      // Draw right wall
+      ctx.fillStyle = '#444';
+      ctx.fillRect(gapX+gapW, wallY, this.W-gapX-gapW, wallH);
+      ctx.strokeStyle = '#f44'; ctx.lineWidth=2;
+      ctx.strokeRect(gapX+gapW, wallY, this.W-gapX-gapW, wallH);
+      // Draw open passage indicator
+      ctx.fillStyle = 'rgba(0,255,0,0.1)';
+      ctx.fillRect(gapX, wallY, gapW, wallH);
     }
 
     this.blocks.forEach(b=>b.draw());
