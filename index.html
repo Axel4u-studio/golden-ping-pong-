@@ -198,8 +198,11 @@ class Ball {
     if (!this.active) return;
     const s = this.speedMult;
     this.x += this.vx*s; this.y += this.vy*s;
-    if (this.x < this.size) { this.x = this.size; this.vx = Math.abs(this.vx); }
-    if (this.x > G.W-this.size) { this.x = G.W-this.size; this.vx = -Math.abs(this.vx); }
+    // Side walls only in non-Arena modes (1-3). In Arena (mode 4), ball flies out for side misses.
+    if (G.mode !== 4) {
+      if (this.x < this.size) { this.x = this.size; this.vx = Math.abs(this.vx); }
+      if (this.x > G.W-this.size) { this.x = G.W-this.size; this.vx = -Math.abs(this.vx); }
+    }
   }
   draw() {
     const c = BALL_COLORS[this.colorKey] || BALL_COLORS.white;
