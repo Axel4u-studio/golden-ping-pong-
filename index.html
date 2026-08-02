@@ -756,8 +756,20 @@ const G = {
   },
 
   handleMiss(aiIdx) {
-    this.misses[aiIdx]++;
     const ai = this.ais[aiIdx];
+    // If wall already exists, ball tunneled through - bounce it back
+    if (ai.hasWall) {
+      if (ai.vertical) {
+        this.ball.vx = (ai.x < this.W/2 ? 1 : -1) * Math.abs(this.ball.vx);
+        this.ball.x = ai.x < this.W/2 ? ai.x + ai.w + this.ball.size/2 + 2 : ai.x - this.ball.size/2 - 2;
+      } else {
+        this.ball.vy = (ai.y < this.H/2 ? 1 : -1) * Math.abs(this.ball.vy);
+        this.ball.y = ai.y < this.H/2 ? ai.y + ai.h + this.ball.size/2 + 2 : ai.y - this.ball.size/2 - 2;
+      }
+      this.spawnParticles(this.ball.x, this.ball.y, '#888', 4);
+      return;
+    }
+    this.misses[aiIdx]++;
     ai.missed++;
     if (ai.missed >= 11 && !ai.hasWall) {
       ai.hasWall = true;
@@ -801,7 +813,8 @@ const G = {
     let hit = false;
 
     if (p.vertical) {
-      if (b.x+b.size/2 > p.x && b.x-b.size/2 < p.x+p.w &&
+      const wallPad = isWall ? 6 : 0; // wider detection for walls to prevent tunneling
+      if (b.x+b.size/2+wallPad > p.x && b.x-b.size/2-wallPad < p.x+p.w &&
           b.y+b.size/2 > p.y && b.y-b.size/2 < p.y+ph) {
         const hitPos = (b.y - p.y)/ph;
         let angle = (hitPos-0.5)*Math.PI/2.2;
