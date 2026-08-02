@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Golden Ping Pong</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; user-select:none; -webkit-user-select:none; }
+html, body {
+  width:100%; height:100%; overflow:hidden;
+  background:#0d0d1a; color:#ffd700;
+  font-family:'Press Start 2P', cursive, monospace;
+  display:flex; align-items:center; justify-content:center;
+}
+#rotate-hint {
+  display:none; position:fixed; inset:0; z-index:9999;
+  background:#000; color:#ffd700; align-items:center; justify-content:center;
+  flex-direction:column; gap:20px; text-align:center; padding:20px;
+}
+#game-wrapper {
+  position:relative;
+  box-shadow:0 0 40px rgba(255,215,0,0.15);
+  border:4px solid #ffd700;
+  background:#1a1a2e;
+}
+#gameCanvas {
+  display:block;
+  image-rendering:pixelated;
+  image-rendering:crisp-edges;
+  width:100%; height:100%;
+}
+#ui-layer {
+  position:absolute; inset:0; pointer-events:none;
+  display:flex; flex-direction:column; justify-content:space-between;
+}
+#ui-layer > * { pointer-events:auto; }
+#title-screen, #mode-screen, #diff-screen, #gameover-screen, #records-screen {
+  position:absolute; inset:0; background:rgba(13,13,26,0.95);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:16px; padding:20px; text-align:center;
+}
+.hidden { display:none !important; }
+h1 {
+  font-size:clamp(16px, 4vw, 32px);
+  color:#ffd700; text-shadow:0 0 10px rgba(255,215,0,0.5);
+  line-height:1.4;
+}
+h1 small {
+  display:block; font-size:0.45em; color:#aaa; margin-top:8px;
+}
+.btn {
+  background:#1a1a2e; color:#ffd700; border:3px solid #ffd700;
+  padding:12px 24px; font-family:inherit; font-size:clamp(8px, 2vw, 14px);
+  cursor:pointer; transition:all .15s; min-width:220px;
+  text-transform:uppercase;
+}
+.btn:hover, .btn.active {
+  background:#ffd700; color:#0d0d1a; box-shadow:0 0 15px rgba(255,215,0,0.4);
+}
+.btn-row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+#hud {
+  display:flex; justify-content:space-between; align-items:flex-start;
+  padding:10px 15px; font-size:clamp(8px, 2vw, 12px);
+  color:#ffd700; text-shadow:0 0 5px rgba(255,215,0,0.3);
+}
+#phrase-bar {
+  position:absolute; top:18%; left:0; right:0; text-align:center;
+  font-size:clamp(10px, 3vw, 18px); color:#0f0;
+  text-shadow:0 0 10px rgba(0,255,0,0.6);
+  opacity:0; transition:opacity .2s; pointer-events:none;
+}
+#phrase-bar.show { opacity:1; }
+#game-wrapper::after {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15), rgba(0,0,0,0.15) 1px, transparent 1px, transparent 3px);
+  mix-blend-mode: multiply;
+}
+#game-wrapper::before {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  box-shadow:inset 0 0 80px rgba(0,0,0,0.6);
+}
+#controls-hint {
+  position:absolute; bottom:8px; left:0; right:0; text-align:center;
+  font-size:clamp(6px, 1.5vw, 10px); color:#666;
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  #rotate-hint { display:flex; }
+}
+</style>
+</head>
+<body>
+<div id="rotate-hint">
+  <div style="font-size:48px;">&#128241;&#8635;</div>
+  <div>Поверните устройство<br>в альбомный режим</div>
+</div>
+<div id="game-wrapper">
+  <canvas id="gameCanvas"></canvas>
+  <div id="ui-layer">
+    <div id="title-screen">
+      <h1>GOLDEN PING PONG<small>Axel4u Studio при поддержке Golden Media</small></h1>
+      <button class="btn" onclick="G.toModes()">Играть</button>
+      <button class="btn" onclick="G.toRecords()">Рекорды</button>
+      <button class="btn" onclick="G.toggleFullscreen()">&#9974; Полноэкранный</button>
+    </div>
+    <div id="mode-screen" class="hidden">
+      <h1>Выбор режима</h1>
+      <div class="btn-row" style="flex-direction:column;align-items:center;">
+        <button class="btn" onclick="G.setMode(0)">1. Классический</button>
+        <button class="btn" onclick="G.setMode(1)">2. Проход</button>
+        <button class="btn" onclick="G.setMode(2)">3. Бегущий проход</button>
+        <button class="btn" onclick="G.setMode(3)">4. Хаос</button>
+        <button class="btn" onclick="G.setMode(4)">5. Арена</button>
+        <button class="btn" onclick="G.toMenu()" style="margin-top:10px;border-color:#666;color:#888;">Назад</button>
+      </div>
+    </div>
+    <div id="diff-screen" class="hidden">
+      <h1 id="diff-title">Сложность</h1>
+      <div class="btn-row" style="flex-direction:column;align-items:center;">
+        <button class="btn" onclick="G.setDiff(0)">Лёгкая</button>
+        <button class="btn" onclick="G.setDiff(1)">Средняя</button>
+        <button class="btn" onclick="G.setDiff(2)">Сложная</button>
+        <button class="btn" onclick="G.toModes()" style="margin-top:10px;border-color:#666;color:#888;">Назад</button>
+      </div>
+    </div>
+    <div id="gameover-screen" class="hidden">
+      <h1 id="go-title">GAME OVER</h1>
+      <div id="go-stats" style="color:#ccc;font-size:12px;line-height:1.8;"></div>
+      <button class="btn" onclick="G.restart()">Ещё раз</button>
+      <button class="btn" onclick="G.toMenu()" style="border-color:#666;color:#888;">Меню</button>
+    </div>
+    <div id="records-screen" class="hidden">
+      <h1>Рекорды (сек)</h1>
+      <div id="records-list" style="font-size:10px;color:#ccc;line-height:1.8;max-height:50vh;overflow:auto;"></div>
+      <button class="btn" onclick="G.toMenu()">Назад</button>
+    </div>
+    <div id="hud" class="hidden">
+      <span id="hud-score"></span>
+      <span id="hud-time"></span>
+    </div>
+    <div id="phrase-bar"></div>
+    <div id="controls-hint" class="hidden">&#8592; &#8594; движение | &#8593; смэш | ESC пауза</div>
+  </div>
+</div>
+<script>
+
+/* ===================== GOLDEN PING PONG ===================== */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+const PHRASES = [
+  'Отличный удар!','Хорошая защита!','ГОЛ!!!','СМЭШ!','Невероятно!',
+  'Великолепно!','Точно в цель!','Мощь!','Скорость!','Идеально!',
+  'Во!','Красава!','Огонь!','Топчик!','Легенда!',
+  'Бог игры!','Монстр!','Ультра!','Мега удар!','Восхитительно!',
+  'Блестяще!','Фантастика!','Мастерство!','Превосходно!','Вин!'
+];
+const MODE_NAMES = ['Классический','Проход','Бегущий проход','Хаос','Арена'];
+const DIFF_NAMES = ['Лёгкая','Средняя','Сложная'];
+
+/* ---------- Classes ---------- */
+class Ball {
+  constructor(diff) {
+    this.diff = diff;
+    this.reset();
+  }
+  reset() {
+    this.x = G.W/2; this.y = G.H/2;
+    this.vx = 0; this.vy = 0;
+    this.size = 8;
+    this.baseSpeed = 4 + this.diff*1.5;
+    this.speedMult = 1;
+    this.active = false;
+    this.lastHitBy = null;
+  }
+  launch(towardPlayer) {
+    this.active = true;
+    const angle = (Math.random()-0.5)*Math.PI/3;
+    const dir = towardPlayer ? 1 : -1;
+    const s = this.baseSpeed;
+    this.vx = Math.sin(angle)*s;
+    this.vy = Math.cos(angle)*s*dir;
+    this.speedMult = 1;
+  }
+  update() {
+    if (!this.active) return;
+    const s = this.speedMult;
+    this.x += this.vx*s; this.y += this.vy*s;
+    // Wall bounce left/right
+    if (this.x < this.size) { this.x = this.size; this.vx = Math.abs(this.vx); }
+    if (this.x > G.W-this.size) { this.x = G.W-this.size; this.vx = -Math.abs(this.vx); }
+  }
+  draw() {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(this.x-this.size/2, this.y-this.size/2, this.size, this.size);
+    ctx.fillStyle = '#ffd700';
+    ctx.fillRect(this.x-this.size/2+2, this.y-this.size/2+2, this.size-4, this.size-4);
+  }
+}
+
+class Paddle {
+  constructor(x, y, w, h, vertical, isPlayer, aiIndex) {
+    this.ox = x; this.oy = y; this.w = w; this.h = h;
+    this.x = x; this.y = y;
+    this.vertical = vertical;
+    this.isPlayer = isPlayer;
+    this.aiIndex = aiIndex||0;
+    this.vx = 0; this.vy = 0;
+    this.speed = isPlayer ? 7 : 3.5 + G.diff*1.5;
+    this.boost = 0; this.boostHits = 0;
+    this.missed = 0;
+    this.hasWall = false;
+  }
+  get bw() { return this.w*(1+this.boost); }
+  updateAI(ball) {
+    if (this.isPlayer || this.hasWall) return;
+    const maxSpd = this.speed * (0.6 + G.diff*0.2);
+    if (this.vertical) {
+      const target = ball.y;
+      const c = this.y + this.h/2;
+      const d = target - c;
+      this.vy = Math.max(-maxSpd, Math.min(maxSpd, d*0.08));
+      this.y += this.vy;
+    } else {
+      const target = ball.x;
+      const c = this.x + this.bw/2;
+      const d = target - c;
+      this.vx = Math.max(-maxSpd, Math.min(maxSpd, d*0.08));
+      this.x += this.vx;
+    }
+    this.clamp();
+  }
+  updatePlayer() {
+    if (!this.isPlayer) return;
+    this.vx = 0; this.vy = 0;
+    if (G.keys['ArrowLeft'] || G.keys['a']) this.vx = -this.speed;
+    if (G.keys['ArrowRight'] || G.keys['d']) this.vx = this.speed;
+    if (G.touch.active) {
+      const dx = G.touch.x - G.touch.lastX;
+      this.x += dx * 1.2;
+      G.touch.lastX = G.touch.x;
+    }
+    this.clamp();
+  }
+  clamp() {
+    if (this.vertical) {
+      this.y = Math.max(0, Math.min(G.H-this.h, this.y));
+    } else {
+      this.x = Math.max(0, Math.min(G.W-this.bw, this.x));
+    }
+  }
+  draw() {
+    if (this.hasWall) {
+      ctx.fillStyle = '#555';
+      if (this.vertical) ctx.fillRect(this.x, this.y, this.w, this.h);
+      else ctx.fillRect(this.x, this.y, this.bw, this.h);
+      ctx.fillStyle = '#333';
+      for (let i=0; i<(this.vertical?this.h:this.bw); i+=8) {
+        if (this.vertical) ctx.fillRect(this.x+2, this.y+i, this.w-4, 4);
+        else ctx.fillRect(this.x+i, this.y+2, 4, this.h-4);
+      }
+      return;
+    }
+    ctx.fillStyle = this.isPlayer ? '#ffd700' : '#ff4444';
+    if (this.vertical) ctx.fillRect(this.x, this.y, this.w, this.h);
+    else ctx.fillRect(this.x, this.y, this.bw, this.h);
+    // pixel detail
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    if (this.vertical) ctx.fillRect(this.x+2, this.y+2, this.w-4, this.h-4);
+    else ctx.fillRect(this.x+2, this.y+2, this.bw-4, this.h-4);
+  }
+}
+
+class Block {
+  constructor() {
+    this.w = 30 + Math.random()*30;
+    this.h = 10 + Math.random()*12;
+    this.x = Math.random()*(G.W-this.w);
+    this.y = G.H*0.25 + Math.random()*(G.H*0.5);
+    this.life = 4000 + Math.random()*6000;
+    this.born = Date.now();
+  }
+  draw() {
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(this.x, this.y, this.w, this.h);
+    ctx.fillStyle = '#A0522D';
+    ctx.fillRect(this.x+2, this.y+2, this.w-4, this.h-4);
+  }
+}
+
+class Bonus {
+  constructor() {
+    this.size = 16;
+    this.x = 20 + Math.random()*(G.W-40);
+    this.y = G.H*0.3 + Math.random()*(G.H*0.4);
+    this.born = Date.now();
+    this.life = 12000;
+  }
+  draw() {
+    const age = Date.now()-this.born;
+    const pulse = Math.sin(age/150)*3;
+    ctx.fillStyle = '#0f0';
+    ctx.fillRect(this.x-pulse, this.y-pulse, this.size+pulse*2, this.size+pulse*2);
+    ctx.fillStyle = '#000';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('+', this.x+this.size/2, this.y+this.size/2+4);
+  }
+}
+
+class Particle {
+  constructor(x,y,color) {
+    this.x=x; this.y=y; this.color=color;
+    this.vx=(Math.random()-0.5)*5;
+    this.vy=(Math.random()-0.5)*5;
+    this.life=25;
+  }
+  update() { this.x+=this.vx; this.y+=this.vy; this.life--; }
+  draw() {
+    ctx.globalAlpha = this.life/25;
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x, this.y, 3, 3);
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* ---------- Game Engine ---------- */
+const G = {
+  screen:'menu', mode:0, diff:1, running:false,
+  W:400, H:600,
+  ball:null, player:null, ais:[], paddles:[],
+  blocks:[], bonuses:[], particles:[],
+  scoreP:0, scoreAI:[0,0,0], misses:[0,0,0],
+  startTime:0, timer:0,
+  phrase:'', phraseTimer:0,
+  keys:{}, touch:{active:false, x:0, lastX:0, startY:0, y:0},
+  smashReady:false, smashTimer:0,
+  records:{}, shake:0,
+  blockSpawnTimer:0, bonusSpawnTimer:0, gapX:0,
+
+  init() {
+    const saved = localStorage.getItem('gpp_records');
+    if (saved) this.records = JSON.parse(saved);
+    this.bindInput();
+    this.resize();
+    window.addEventListener('resize', ()=>this.resize());
+    requestAnimationFrame(t=>this.loop(t));
+  },
+
+  resize() {
+    const wrap = document.getElementById('game-wrapper');
+    const isArena = this.mode===4;
+    const aspect = isArena ? 1 : 2/3;
+    const maxW = window.innerWidth - 20;
+    const maxH = window.innerHeight - 20;
+    let w = maxW, h = maxW/aspect;
+    if (h > maxH) { h = maxH; w = h*aspect; }
+    wrap.style.width = w+'px'; wrap.style.height = h+'px';
+    canvas.width = isArena ? 600 : 400;
+    canvas.height = isArena ? 600 : 600;
+    this.W = canvas.width; this.H = canvas.height;
+  },
+
+  bindInput() {
+    window.addEventListener('keydown', e=>{
+      this.keys[e.key] = true;
+      if (e.key==='ArrowUp' || e.key==='w') { this.smashReady=true; this.smashTimer=Date.now(); }
+      if (e.key==='Escape') { if(this.running) this.running=false; else if(this.screen==='game') this.startGame(); }
+    });
+    window.addEventListener('keyup', e=>{ this.keys[e.key]=false; if(e.key==='ArrowUp'||e.key==='w') this.smashReady=false; });
+
+    const c = canvas;
+    c.addEventListener('touchstart', e=>{
+      e.preventDefault();
+      this.touch.active=true;
+      this.touch.x = e.touches[0].clientX;
+      this.touch.lastX = this.touch.x;
+      this.touch.startY = e.touches[0].clientY;
+      this.touch.y = this.touch.startY;
+    }, {passive:false});
+    c.addEventListener('touchmove', e=>{
+      e.preventDefault();
+      this.touch.x = e.touches[0].clientX;
+      this.touch.y = e.touches[0].clientY;
+      if (this.touch.startY - this.touch.y > 40) {
+        this.smashReady = true; this.smashTimer = Date.now();
+      }
+    }, {passive:false});
+    c.addEventListener('touchend', e=>{
+      e.preventDefault();
+      this.touch.active=false; this.smashReady=false;
+    });
+  },
+
+  toggleFullscreen() {
+    const d = document.documentElement;
+    if (!document.fullscreenElement) {
+      d.requestFullscreen().catch(()=>{});
+      if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(()=>{});
+    } else {
+      document.exitFullscreen();
+    }
+  },
+
+  toMenu() { this.show('title-screen'); this.running=false; this.screen='menu'; },
+  toModes() { this.show('mode-screen'); this.screen='modes'; },
+  setMode(m) { this.mode=m; document.getElementById('diff-title').innerText=MODE_NAMES[m]; this.show('diff-screen'); },
+  setDiff(d) { this.diff=d; this.startGame(); },
+  show(id) {
+    ['title-screen','mode-screen','diff-screen','gameover-screen','records-screen','hud','controls-hint'].forEach(x=>{
+      document.getElementById(x).classList.add('hidden');
+    });
+    document.getElementById(id).classList.remove('hidden');
+  },
+
+  toRecords() {
+    this.show('records-screen'); this.screen='records';
+    const list = document.getElementById('records-list');
+    let html = '';
+    for (let m=0;m<5;m++) {
+      html += '<div style="color:#ffd700;margin-top:10px;">'+MODE_NAMES[m]+'</div>';
+      for (let d=0;d<3;d++) {
+        const k = m+'_'+d; const v = this.records[k];
+        html += '<div>'+DIFF_NAMES[d]+': '+(v?v+' сек':'—')+'</div>';
+      }
+    }
+    list.innerHTML = html || 'Нет рекордов';
+  },
+
+  startGame() {
+    this.resize();
+    this.screen='game'; this.running=true;
+    this.scoreP=0; this.scoreAI=[0,0,0]; this.misses=[0,0,0];
+    this.startTime=Date.now(); this.timer=0;
+    this.blocks=[]; this.bonuses=[]; this.particles=[];
+    this.phrase=''; this.phraseTimer=0; this.shake=0;
+    this.smashReady=false; this.smashTimer=0; this.blockSpawnTimer=0; this.bonusSpawnTimer=0;
+    this.gapX = this.W/3;
+
+    const pw=80, ph=12;
+    if (this.mode===4) {
+      this.player = new Paddle(this.W/2-pw/2, this.H-ph-10, pw, ph, false, true);
+      this.ais = [
+        new Paddle(this.W/2-pw/2, 10, pw, ph, false, false, 0),
+        new Paddle(10, this.H/2-pw/2, ph, pw, true, false, 1),
+        new Paddle(this.W-ph-10, this.H/2-pw/2, ph, pw, true, false, 2)
+      ];
+    } else {
+      this.player = new Paddle(this.W/2-pw/2, this.H-ph-10, pw, ph, false, true);
+      this.ais = [new Paddle(this.W/2-pw/2, 10, pw, ph, false, false, 0)];
+    }
+    this.paddles = [this.player, ...this.ais];
+    this.ball = new Ball(this.diff);
+    this.ball.launch(true);
+    this.show('hud');
+    document.getElementById('controls-hint').classList.remove('hidden');
+  },
+
+  restart() { this.startGame(); },
+
+  gameOver(win) {
+    this.running=false;
+    const time = Math.floor((Date.now()-this.startTime)/1000);
+    if (win) {
+      const k = this.mode+'_'+this.diff;
+      if (!this.records[k] || time < this.records[k]) this.records[k] = time;
+      localStorage.setItem('gpp_records', JSON.stringify(this.records));
+    }
+    document.getElementById('go-title').innerText = win ? 'ПОБЕДА!' : 'GAME OVER';
+    document.getElementById('go-title').style.color = win ? '#0f0' : '#f44';
+    let stats = 'Режим: '+MODE_NAMES[this.mode]+'<br>Сложность: '+DIFF_NAMES[this.diff]+'<br>Время: '+time+' сек';
+    if (this.mode===4) {
+      stats += '<br>Ваши пропуски: '+this.player.missed;
+    } else {
+      stats += '<br>Счёт: '+this.scoreP+' : '+this.scoreAI[0];
+    }
+    document.getElementById('go-stats').innerHTML = stats;
+    this.show('gameover-screen');
+  },
+
+  showPhrase(txt) {
+    this.phrase = txt; this.phraseTimer = 90;
+    const el = document.getElementById('phrase-bar');
+    el.innerText = txt; el.classList.add('show');
+    setTimeout(()=>el.classList.remove('show'), 1500);
+  },
+
+  spawnParticles(x,y,color,n=6) {
+    for(let i=0;i<n;i++) this.particles.push(new Particle(x,y,color));
+  },
+
+  /* ---------- Loop ---------- */
+  loop(ts) {
+    requestAnimationFrame(t=>this.loop(t));
+    if (!this.running) return;
+    this.update();
+    this.draw();
+  },
+
+  update() {
+    const now = Date.now();
+    this.timer = Math.floor((now-this.startTime)/1000);
+
+    // Ball
+    this.ball.update();
+
+    // Moving gap
+    if (this.mode===2) {
+      this.gapX = (Math.sin(now/1800)+1)/2 * (this.W*2/3);
+    }
+
+    // Barriers collision (mode 1 & 2)
+    if (this.mode===1 || this.mode===2) {
+      const gw = this.W/3;
+      const gx = this.mode===1 ? this.W/3 : this.gapX;
+      const b = this.ball;
+      if (b.x < gx && b.x+b.size/2 > gx-2) { b.x = gx-b.size/2; b.vx = Math.abs(b.vx); this.spawnParticles(b.x,b.y,'#888',3); }
+      if (b.x > gx+gw && b.x-b.size/2 < gx+gw+2) { b.x = gx+gw+b.size/2; b.vx = -Math.abs(b.vx); this.spawnParticles(b.x,b.y,'#888',3); }
+    }
+
+    // Blocks collision & cleanup
+    if (this.mode===3 || this.mode===4) {
+      this.blocks = this.blocks.filter(b => now-b.born < b.life);
+      for (const b of this.blocks) {
+        const ball = this.ball;
+        if (ball.x+ball.size/2 > b.x && ball.x-ball.size/2 < b.x+b.w &&
+            ball.y+ball.size/2 > b.y && ball.y-ball.size/2 < b.y+b.h) {
+          const dx = ball.x - (b.x+b.w/2);
+          const dy = ball.y - (b.y+b.h/2);
+          if (Math.abs(dx)/b.w > Math.abs(dy)/b.h) ball.vx *= -1; else ball.vy *= -1;
+          this.spawnParticles(ball.x, ball.y, '#A0522D', 4);
+        }
+      }
+      // Spawn blocks (max 2 per 5 sec, max 10 total)
+      const recentBlocks = this.blocks.filter(b => now - b.born < 5000).length;
+      if (this.blocks.length < 10 && now-this.blockSpawnTimer > 2500 && recentBlocks < 2) {
+        this.blocks.push(new Block());
+        this.blockSpawnTimer = now;
+      }
+    }
+
+    // Bonuses
+    if (this.mode===4 || (this.mode!==4 && Math.random()<0.002)) {
+      if (now-this.bonusSpawnTimer > 12000) {
+        this.bonuses.push(new Bonus());
+        this.bonusSpawnTimer = now;
+      }
+    }
+    this.bonuses = this.bonuses.filter(b => now-b.born < b.life);
+    for (let i=this.bonuses.length-1; i>=0; i--) {
+      const b = this.bonuses[i];
+      const ball = this.ball;
+      if (Math.abs(ball.x-(b.x+b.size/2)) < ball.size/2+b.size/2 &&
+          Math.abs(ball.y-(b.y+b.size/2)) < ball.size/2+b.size/2) {
+        const target = ball.lastHitBy==='player' ? this.player : (this.ais.find(a=>!a.isPlayer)||this.ais[0]);
+        if (target) { target.boost=0.2; target.boostHits=3; this.showPhrase('БОНУС: +20%'); }
+        this.bonuses.splice(i,1);
+      }
+    }
+
+    // Paddles
+    this.player.updatePlayer();
+    this.ais.forEach(ai=>ai.updateAI(this.ball));
+
+    // Paddle collisions
+    for (const p of this.paddles) {
+      if (p.hasWall) {
+        // Wall acts like paddle but static
+        if (this.checkHit(p, true)) {
+          this.spawnParticles(this.ball.x, this.ball.y, '#888', 4);
+        }
+        continue;
+      }
+      if (this.checkHit(p)) {
+        // Boost countdown
+        if (p.boostHits > 0) { p.boostHits--; if (p.boostHits<=0) p.boost=0; }
+      }
+    }
+
+    // Goal checks
+    const b = this.ball;
+    if (this.mode===4) {
+      if (b.y < -b.size) this.handleMiss(0); // top
+      else if (b.x < -b.size) this.handleMiss(1); // left
+      else if (b.x > this.W+b.size) this.handleMiss(2); // right
+      else if (b.y > this.H+b.size) this.handlePlayerMiss();
+    } else {
+      if (b.y < -b.size) { this.scoreP++; this.afterGoal(true); }
+      else if (b.y > this.H+b.size) { this.scoreAI[0]++; this.afterGoal(false); }
+    }
+
+    // Win checks (non-arena)
+    if (this.mode!==4 && this.scoreP >= 11) this.gameOver(true);
+    if (this.mode!==4 && this.scoreAI[0] >= 11) this.gameOver(false);
+
+    // Arena win: all AI have walls
+    if (this.mode===4 && this.ais.every(a=>a.hasWall)) this.gameOver(true);
+
+    // Particles
+    this.particles = this.particles.filter(p=>p.life>0);
+    this.particles.forEach(p=>p.update());
+
+    // HUD
+    document.getElementById('hud-time').innerText = this.timer+'с';
+    if (this.mode===4) {
+      document.getElementById('hud-score').innerText = 'Пропуски: '+this.player.missed+' | AI стены: '+this.ais.filter(a=>a.hasWall).length+'/3';
+    } else {
+      document.getElementById('hud-score').innerText = this.scoreP+' : '+this.scoreAI[0];
+    }
+
+    // Phrase timer
+    if (this.phraseTimer>0) this.phraseTimer--;
+
+    // Shake decay
+    if (this.shake>0) { this.shake*=0.9; if(this.shake<0.5)this.shake=0; }
+  },
+
+  handleMiss(aiIdx) {
+    this.misses[aiIdx]++;
+    const ai = this.ais[aiIdx];
+    ai.missed++;
+    if (ai.missed >= 11 && !ai.hasWall) {
+      ai.hasWall = true;
+      this.showPhrase('AI '+(['Верх','Лево','Право'][aiIdx])+' — СТЕНА!');
+    } else {
+      this.showPhrase(PHRASES[Math.floor(Math.random()*PHRASES.length)]);
+    }
+    this.scoreP++;
+    this.afterGoal(true);
+  },
+
+  handlePlayerMiss() {
+    this.player.missed++;
+    if (this.player.missed >= 11) { this.gameOver(false); return; }
+    this.afterGoal(false);
+  },
+
+  afterGoal(playerScored) {
+    this.ball.reset();
+    this.ball.speedMult = 1;
+    this.smashReady = false;
+    setTimeout(()=>this.ball.launch(!playerScored), 800);
+  },
+
+  checkHit(p, isWall=false) {
+    const b = this.ball;
+    const pw = p.bw, ph = p.h;
+    let hit = false;
+
+    if (p.vertical) {
+      // Left/Right paddles
+      if (b.x+ b.size/2 > p.x && b.x-b.size/2 < p.x+p.w &&
+          b.y+b.size/2 > p.y && b.y-b.size/2 < p.y+ph) {
+        const hitPos = (b.y - p.y)/ph; // 0..1
+        let angle = (hitPos-0.5)*Math.PI/2.2;
+        angle += p.vy*0.025;
+        const s = b.baseSpeed*b.speedMult;
+        b.vy = Math.sin(angle)*s;
+        b.vx = (p.x < this.W/2 ? 1 : -1) * Math.abs(Math.cos(angle)*s);
+        if (Math.abs(b.vx) < 1.5) b.vx = (p.x < this.W/2 ? 1 : -1)*2.5;
+        hit = true;
+      }
+    } else {
+      // Top/Bottom paddles
+      if (b.x+b.size/2 > p.x && b.x-b.size/2 < p.x+pw &&
+          b.y+b.size/2 > p.y && b.y-b.size/2 < p.y+ph) {
+        const hitPos = (b.x - p.x)/pw; // 0..1
+        let angle = 0;
+        if (hitPos < 0.33) angle = -Math.PI/3.5;
+        else if (hitPos > 0.66) angle = Math.PI/3.5;
+        else angle = (Math.random()-0.5)*0.25;
+        angle += p.vx*0.025;
+        const s = b.baseSpeed*b.speedMult;
+        b.vx = Math.sin(angle)*s;
+        b.vy = (p.y < this.H/2 ? 1 : -1) * Math.abs(Math.cos(angle)*s);
+        if (Math.abs(b.vy) < 1) b.vy = (p.y < this.H/2 ? 1 : -1)*2;
+        hit = true;
+      }
+    }
+
+    if (hit) {
+      b.lastHitBy = p.isPlayer ? 'player' : 'ai';
+      // Smash
+      if (!isWall && this.smashReady && (now()-this.smashTimer)<300) {
+        b.speedMult *= 1.1;
+        this.smashReady = false;
+        this.showPhrase('СМЭШ! x'+b.speedMult.toFixed(1));
+        this.shake = 12;
+      }
+      this.spawnParticles(b.x, b.y, p.isPlayer?'#ffd700':'#ff4444', 5);
+      // Wall hit sound effect placeholder
+    }
+    return hit;
+  },
+
+  draw() {
+    const ctx2 = ctx;
+    // Clear
+    ctx2.fillStyle = '#1a1a2e';
+    ctx2.fillRect(0,0,this.W,this.H);
+
+    // Center line
+    ctx2.strokeStyle = '#333'; ctx2.lineWidth=2; ctx2.setLineDash([6,6]);
+    ctx2.beginPath();
+    if (this.mode===4) {
+      ctx2.moveTo(this.W/2,0); ctx2.lineTo(this.W/2,this.H);
+      ctx2.moveTo(0,this.H/2); ctx2.lineTo(this.W,this.H/2);
+    } else {
+      ctx2.moveTo(0,this.H/2); ctx2.lineTo(this.W,this.H/2);
+    }
+    ctx2.stroke(); ctx2.setLineDash([]);
+
+    // Barriers mode 1,2
+    if (this.mode===1 || this.mode===2) {
+      const gw = this.W/3; const gx = this.mode===1 ? this.W/3 : this.gapX;
+      ctx2.fillStyle = '#444';
+      ctx2.fillRect(0,0,gx,this.H);
+      ctx2.fillRect(gx+gw,0,this.W-gx-gw,this.H);
+      ctx2.strokeStyle = '#f44'; ctx2.lineWidth=2;
+      ctx2.beginPath();
+      ctx2.moveTo(gx,0); ctx2.lineTo(gx,this.H);
+      ctx2.moveTo(gx+gw,0); ctx2.lineTo(gx+gw,this.H);
+      ctx2.stroke();
+    }
+
+    // Entities
+    this.blocks.forEach(b=>b.draw());
+    this.bonuses.forEach(b=>b.draw());
+    this.paddles.forEach(p=>p.draw());
+    this.ball.draw();
+    this.particles.forEach(p=>p.draw());
+
+    // Shake
+    if (this.shake>0) {
+      canvas.style.transform = `translate(${(Math.random()-0.5)*this.shake}px,${(Math.random()-0.5)*this.shake}px)`;
+    } else {
+      canvas.style.transform = '';
+    }
+  }
+};
+
+function now() { return Date.now(); }
+
+// Boot
+G.init();
+</script>
+</body>
+</html>
